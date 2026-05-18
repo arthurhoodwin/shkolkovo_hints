@@ -29,6 +29,11 @@ def _req_post(url, **kwargs):
     return requests.post(url, verify=VERIFY_SSL, **kwargs)
 
 
+def _req_put(url, **kwargs):
+    kwargs.setdefault("timeout", DEFAULT_TIMEOUT)
+    return requests.put(url, verify=VERIFY_SSL, **kwargs)
+
+
 def _friendly_request_error(e: Exception) -> str:
     """Возвращает понятное сообщение об ошибке вместо технического трейсбека."""
     s = str(e)

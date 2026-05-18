@@ -12,6 +12,7 @@ Turn the current hints-focused app into a full desktop client for question bank 
 ## What We Already Confirmed From HAR
 
 Validated endpoints from your HAR files:
+- `PUT /api/test/v1/question/admin/new`
 - `POST /api/test/v1/question/admin/list`
 - `GET /api/test/v1/question/admin/by-id/{id}`
 - `POST /api/test/v1/question/admin/edit/{id}`
@@ -25,6 +26,12 @@ Validated endpoints from your HAR files:
 - `POST /api/test/v1/theory/admin/list`
 
 This is enough to build a practical CRUD-style admin client MVP.
+
+Latest validated create flow (question `183026` from `2026-05-18` HAR):
+1. `PUT /api/test/v1/question/admin/new` with minimal draft payload.
+2. `GET /api/test/v1/question/admin/by-id/{id}` to reload card.
+3. `PUT /api/test/v1/related-questions/admin/edit`.
+4. `POST /api/test/v1/question/admin/edit/{id}` for full save.
 
 ## Phase 1 Delivered In Code
 
@@ -100,4 +107,3 @@ This is enough to build a practical CRUD-style admin client MVP.
   - file upload and file remove;
   - adding theory facts and plan items.
 - One anonymized real question JSON after `by-id` for each major task type.
-

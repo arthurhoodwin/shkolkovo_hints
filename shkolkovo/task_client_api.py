@@ -1,7 +1,7 @@
 import copy
 from typing import Any
 
-from .api import _req_get, _req_post, get_headers
+from .api import _req_get, _req_post, _req_put, get_headers
 from .config import BASE_URL
 
 
@@ -99,6 +99,56 @@ def update_related_questions(question_id: int, related_ids: list[int], token: st
         json=payload,
     )
     response.raise_for_status()
+
+
+def create_question_draft(
+    token: str,
+    *,
+    name: str,
+    theme_id: int,
+    difficulty_id: int,
+    source_id: int | None = None,
+    answer_text: str = "",
+    answer_type_id: int = 1,
+    input_type: int = 1,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "Id": 0,
+        "Name": name,
+        "IsDeactivated": False,
+        "AnswerTypeId": answer_type_id,
+        "InputType": input_type,
+        "QuestionTexSessionId": 0,
+        "SolutionTexSessionId": 0,
+        "GradeCriteriaTexSessionId": 0,
+        "SolutionPlanTexSessionId": 0,
+        "QuestionFiles": [],
+        "SolutionFiles": [],
+        "AnswerCheckoutFile": None,
+        "AnswerNeedsAttachment": False,
+        "RelatesToQuestionContentId": 0,
+        "Themes": [theme_id],
+        "SortOrder": 0,
+        "Tags": [],
+        "DifficultyId": difficulty_id,
+        "Faq": [],
+        "LessonTimeCode": 0,
+        "QuestionTaskReviews": [],
+        "Sources": [source_id] if source_id is not None else [],
+        "Answer": {"TexSessionId": 0, "text": answer_text},
+    }
+    # HAR confirms this endpoint is used for creation flow.
+    response = _req_put(
+        f"{BASE_URL}/test/v1/question/admin/new",
+        headers=get_headers(token),
+        json=payload,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        raise ValueError("API returned invalid created question object")
+    return result
 
 
 def list_themes(token: str) -> list[dict[str, Any]]:

@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 from .api import _friendly_request_error
 from .app_qt import _run
 from .task_client_api import (
+    create_question_draft,
     get_question_by_id,
     list_difficulties,
     list_questions,
@@ -137,6 +138,9 @@ class FullClientApp(QMainWindow):
 
         self.f_page = QLineEdit("1")
         self.f_per_page = QLineEdit("50")
+        self.f_new_name = QLineEdit("Новая задача")
+        self.f_new_source = QLineEdit()
+        self.f_new_source.setPlaceholderText("Source ID (optional)")
 
         grid.addWidget(QLabel("Question"), 0, 0)
         grid.addWidget(self.f_qid, 0, 1)
@@ -152,10 +156,17 @@ class FullClientApp(QMainWindow):
         grid.addWidget(self.f_page, 2, 3)
         grid.addWidget(QLabel("Per page"), 3, 0)
         grid.addWidget(self.f_per_page, 3, 1)
+        grid.addWidget(QLabel("New name"), 4, 0)
+        grid.addWidget(self.f_new_name, 4, 1, 1, 2)
+        grid.addWidget(QLabel("New source"), 4, 3)
+        grid.addWidget(self.f_new_source, 4, 4)
 
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self._search)
         grid.addWidget(self.search_btn, 3, 3)
+        self.create_btn = QPushButton("Create Draft")
+        self.create_btn.clicked.connect(self._create_draft)
+        grid.addWidget(self.create_btn, 3, 4)
 
         col.addWidget(filters)
 
@@ -305,6 +316,47 @@ class FullClientApp(QMainWindow):
             on_error=lambda e: self._error(_friendly_request_error(Exception(e))),
         )
 
+    def _create_draft(self):
+        try:
+            token = self._token()
+            name = self.f_new_name.text().strip() or "Новая задача"
+            theme_id = _to_optional_int(self.f_theme.text())
+            if theme_id is None:
+                raise ValueError("Theme ID is required for create")
+            difficulty_id = _to_optional_int(self.f_diff.text())
+            if difficulty_id is None:
+                difficulty_id = 20
+            source_id = _to_optional_int(self.f_new_source.text())
+        except Exception as exc:
+            self._error(f"Create draft validation error: {exc}")
+            return
+
+        self._set_status("Creating draft question...")
+
+        def _done(result: dict):
+            qid = result.get("Id")
+            if not isinstance(qid, int):
+                self._error("Created question has invalid Id")
+                return
+            self._set_status(f"Draft created: #{qid}")
+            self._load_question(qid)
+            self._search()
+
+        _run(
+            lambda: create_question_draft(
+                token,
+                name=name,
+                theme_id=theme_id,
+                difficulty_id=difficulty_id,
+                source_id=source_id,
+                answer_text="",
+                answer_type_id=1,
+                input_type=1,
+            ),
+            on_result=_done,
+            on_error=lambda e: self._error(_friendly_request_error(Exception(e))),
+        )
+
     def _reload_current(self):
         if not self._current_question:
             self._error("No question loaded")
@@ -449,4 +501,3 @@ class FullClientApp(QMainWindow):
                 self.token_edit.setText(data["token"])
         except Exception:
             pass
-

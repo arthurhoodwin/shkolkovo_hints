@@ -1,10 +1,9 @@
-﻿@echo off
+@echo off
 setlocal
-chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ==========================================
-echo  Запуск ShkolkovoHints (PyQt6)
+echo  Run ShkolkovoHints (PyQt6)
 echo ==========================================
 
 set "VENV_DIR=.venv"
@@ -14,31 +13,31 @@ where py >nul 2>&1
 if %errorlevel%==0 set "BOOTSTRAP=py -3"
 
 if not exist "%VENV_DIR%\Scripts\python.exe" (
-    echo [1/4] Создаю виртуальное окружение...
+    echo [1/4] Create virtual environment...
     %BOOTSTRAP% -m venv "%VENV_DIR%"
     if errorlevel 1 goto :fail
 )
 
-echo [2/4] Активирую окружение...
+echo [2/4] Activate venv...
 call "%VENV_DIR%\Scripts\activate.bat"
 if errorlevel 1 goto :fail
 
-echo [3/4] Устанавливаю зависимости...
+echo [3/4] Install dependencies...
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 if errorlevel 1 goto :fail
 
-echo [4/4] Запускаю приложение...
+echo [4/4] Start app...
 python main.py
 set EXIT_CODE=%errorlevel%
 
 echo.
-echo Приложение завершилось с кодом: %EXIT_CODE%
+echo App exited with code: %EXIT_CODE%
 pause
 exit /b %EXIT_CODE%
 
 :fail
 echo.
-echo [ОШИБКА] Не удалось запустить приложение.
+echo [ERROR] Start failed.
 pause
 exit /b 1

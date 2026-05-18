@@ -1,10 +1,9 @@
-﻿@echo off
+@echo off
 setlocal
-chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ==========================================
-echo  Сборка ShkolkovoHints в EXE (PyQt6)
+echo  Build ShkolkovoHints EXE (PyQt6)
 echo ==========================================
 
 set "VENV_DIR=.venv"
@@ -14,26 +13,26 @@ where py >nul 2>&1
 if %errorlevel%==0 set "BOOTSTRAP=py -3"
 
 if not exist "%VENV_DIR%\Scripts\python.exe" (
-    echo [1/5] Создаю виртуальное окружение...
+    echo [1/5] Create virtual environment...
     %BOOTSTRAP% -m venv "%VENV_DIR%"
     if errorlevel 1 goto :fail
 )
 
-echo [2/5] Активирую окружение...
+echo [2/5] Activate venv...
 call "%VENV_DIR%\Scripts\activate.bat"
 if errorlevel 1 goto :fail
 
-echo [3/5] Устанавливаю зависимости...
+echo [3/5] Install dependencies...
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 if errorlevel 1 goto :fail
 
-echo [4/5] Очищаю прошлую сборку...
+echo [4/5] Clean previous build...
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
 if exist "ShkolkovoHints.spec" del /q "ShkolkovoHints.spec"
 
-echo [5/5] Запускаю PyInstaller...
+echo [5/5] Run PyInstaller...
 pyinstaller --noconfirm --clean --onefile --windowed ^
   --name "ShkolkovoHints" ^
   --hidden-import=PyQt6.QtWebEngineWidgets ^
@@ -45,13 +44,13 @@ if errorlevel 1 goto :fail
 
 echo.
 echo ==========================================
-echo  Готово: dist\ShkolkovoHints.exe
+echo  Done: dist\ShkolkovoHints.exe
 echo ==========================================
 pause
 exit /b 0
 
 :fail
 echo.
-echo [ОШИБКА] Сборка завершилась с ошибкой.
+echo [ERROR] Build failed.
 pause
 exit /b 1

@@ -6,17 +6,17 @@ BASE_URL = "https://1.shkolkovo.online/api"
 MAX_HISTORY = 30
 
 # ── Palette ───────────────────────────────────────────────
-BG       = "#0d0d14"
-SURFACE  = "#14141f"
-CARD     = "#1c1c2e"
-BORDER   = "#2a2a42"
-ACCENT   = "#2e6fff"
-ACCENT2  = "#6c3ce1"
+BG       = "#0f1115"
+SURFACE  = "#171a21"
+CARD     = "#1f2430"
+BORDER   = "#31394a"
+ACCENT   = "#2b84ff"
+ACCENT2  = "#0ea5a3"
 SUCCESS  = "#22c55e"
 DANGER   = "#ef4444"
 WARNING  = "#f59e0b"
-TEXT     = "#e2e2f0"
-MUTED    = "#6b6b9a"
+TEXT     = "#e7edf7"
+MUTED    = "#8c97ac"
 
 HINT_ACCENTS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4"]
 
@@ -140,6 +140,66 @@ QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
 
 QFrame[card="true"] {{
     background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px;
+}}
+
+QGroupBox {{
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    margin-top: 10px;
+    padding: 10px 10px 8px 10px;
+    background: {CARD};
+    font-weight: 700;
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 6px 0 6px;
+    color: {TEXT};
+}}
+
+QTabWidget::pane {{
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    background: {CARD};
+}}
+QTabBar::tab {{
+    background: {SURFACE};
+    color: {MUTED};
+    border: 1px solid {BORDER};
+    border-bottom: none;
+    min-width: 104px;
+    min-height: 32px;
+    padding: 6px 12px;
+    margin-right: 4px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    font-weight: 700;
+}}
+QTabBar::tab:selected {{
+    color: white;
+    background: {ACCENT};
+    border-color: {ACCENT};
+}}
+QTabBar::tab:hover:!selected {{
+    color: {TEXT};
+    border-color: {ACCENT};
+}}
+
+QTableWidget {{
+    background: {SURFACE};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    gridline-color: {BORDER};
+    selection-background-color: #21477c;
+    selection-color: white;
+}}
+QTableWidget::item {{
+    padding: 4px;
+}}
+QTableCornerButton::section {{
+    background: {CARD};
+    border: 1px solid {BORDER};
 }}
 
 QStatusBar {{ background: {SURFACE}; border-top: 1px solid {BORDER}; font-size: 12px; }}

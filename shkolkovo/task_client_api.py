@@ -93,7 +93,7 @@ def update_question(question: dict[str, Any], token: str) -> dict[str, Any]:
 
 def update_related_questions(question_id: int, related_ids: list[int], token: str) -> None:
     payload = {"QuestionId": question_id, "RelatedQuestionIds": related_ids}
-    response = _req_post(
+    response = _req_put(
         f"{BASE_URL}/test/v1/related-questions/admin/edit",
         headers=get_headers(token),
         json=payload,

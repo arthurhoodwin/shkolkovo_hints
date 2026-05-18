@@ -33,6 +33,12 @@ Latest validated create flow (question `183026` from `2026-05-18` HAR):
 3. `PUT /api/test/v1/related-questions/admin/edit`.
 4. `POST /api/test/v1/question/admin/edit/{id}` for full save.
 
+Latest validated answer-type flow (question `106917` from `2026-05-18 22:08:09` HAR):
+- `AnswerTypeId=20`, `InputType=3`, `AnswerProperty={"length":2,"height":1}`
+- `AnswerTypeId=21`, `InputType=3`, `AnswerProperty={"length":2,"height":1}`
+- `AnswerTypeId=24`, `InputType=3`, `AnswerProperty={"length":2,"height":1}`
+- answer payload uses `Answer.text` like `4484,356` and `WrongAnswer.String`.
+
 ## Phase 1 Delivered In Code
 
 - New full-client API module:

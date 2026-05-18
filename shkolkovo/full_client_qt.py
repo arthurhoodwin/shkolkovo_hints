@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QSplitter,
     QStatusBar,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .api import _friendly_request_error
+from .app_qt import App as HintsApp
 from .app_qt import _run
 from .task_client_api import (
     create_question_draft,
@@ -42,6 +44,14 @@ from .task_client_api import (
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".shkolkovo_full_client.json")
 
 
+ANSWER_TYPE_ITEMS = [
+    ("1 — Простой (точное совпадение)", 1, 1),
+    ("20 — Табличный (1 в 1)", 20, 3),
+    ("21 — Табличные пары", 21, 3),
+    ("24 — Табличный (допускает лишние пустые строки)", 24, 3),
+]
+
+
 def _to_optional_int(text: str) -> int | None:
     value = text.strip()
     if not value:
@@ -51,24 +61,25 @@ def _to_optional_int(text: str) -> int | None:
 
 def _parse_id_list(text: str) -> list[int]:
     raw = text.replace(";", ",").replace("\n", ",")
-    items: list[int] = []
+    result: list[int] = []
     for part in raw.split(","):
         p = part.strip()
         if not p:
             continue
-        items.append(int(p))
-    return items
+        result.append(int(p))
+    return result
 
 
 class FullClientApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Shkolkovo Full Client (MVP)")
-        self.resize(1540, 920)
-        self.setMinimumSize(1240, 760)
+        self.setWindowTitle("Школково — Клиент базы задач (MVP)")
+        self.resize(1580, 930)
+        self.setMinimumSize(1260, 780)
 
         self._current_question: dict | None = None
         self._last_items: list[dict] = []
+        self._hints_window: HintsApp | None = None
 
         self._build_ui()
         self._load_settings()
@@ -84,11 +95,11 @@ class FullClientApp(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_left_panel())
-        splitter.addWidget(self._build_editor_panel())
-        splitter.setSizes([700, 820])
+        splitter.addWidget(self._build_right_panel())
+        splitter.setSizes([700, 870])
         layout.addWidget(splitter, 1)
 
-        self._status = QLabel("Ready")
+        self._status = QLabel("Готово")
         bar = QStatusBar()
         bar.addWidget(self._status)
         self.setStatusBar(bar)
@@ -99,17 +110,21 @@ class FullClientApp(QMainWindow):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
 
-        row.addWidget(QLabel("JWT:"))
+        row.addWidget(QLabel("JWT токен:"))
         self.token_edit = QLineEdit()
         self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.token_edit.setPlaceholderText("eyJ...")
         row.addWidget(self.token_edit, 1)
 
-        self.load_refs_btn = QPushButton("Load Dictionaries")
+        self.load_refs_btn = QPushButton("Загрузить справочники")
         self.load_refs_btn.clicked.connect(self._load_reference_data)
         row.addWidget(self.load_refs_btn)
 
-        self.save_settings_btn = QPushButton("Save Settings")
+        self.open_hints_btn = QPushButton("Окно генератора подсказок")
+        self.open_hints_btn.clicked.connect(self._open_hints_window)
+        row.addWidget(self.open_hints_btn)
+
+        self.save_settings_btn = QPushButton("Сохранить настройки")
         self.save_settings_btn.clicked.connect(self._save_settings)
         row.addWidget(self.save_settings_btn)
         return box
@@ -120,91 +135,101 @@ class FullClientApp(QMainWindow):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(8)
 
-        filters = QGroupBox("Question Search")
+        filters = QGroupBox("Поиск и создание задач")
         grid = QGridLayout(filters)
 
         self.f_qid = QLineEdit()
-        self.f_qid.setPlaceholderText("Question ID")
+        self.f_qid.setPlaceholderText("ID задачи")
         self.f_theme = QLineEdit()
-        self.f_theme.setPlaceholderText("Parent Theme ID")
+        self.f_theme.setPlaceholderText("ID темы (родительской)")
         self.f_diff = QLineEdit()
-        self.f_diff.setPlaceholderText("Difficulty ID")
-
-        self.f_private = QComboBox()
-        self.f_private.addItems(["Any privacy", "Public only", "Private only"])
-
-        self.f_deactivated = QComboBox()
-        self.f_deactivated.addItems(["Any status", "Active only", "Deactivated only"])
-
+        self.f_diff.setPlaceholderText("ID сложности")
         self.f_page = QLineEdit("1")
         self.f_per_page = QLineEdit("50")
+
+        self.f_private = QComboBox()
+        self.f_private.addItems(["Любая приватность", "Только публичные", "Только приватные"])
+
+        self.f_deactivated = QComboBox()
+        self.f_deactivated.addItems(["Любой статус", "Только активные", "Только деактивированные"])
+
         self.f_new_name = QLineEdit("Новая задача")
         self.f_new_source = QLineEdit()
-        self.f_new_source.setPlaceholderText("Source ID (optional)")
+        self.f_new_source.setPlaceholderText("ID источника (опционально)")
 
-        grid.addWidget(QLabel("Question"), 0, 0)
+        grid.addWidget(QLabel("ID задачи"), 0, 0)
         grid.addWidget(self.f_qid, 0, 1)
-        grid.addWidget(QLabel("Theme"), 0, 2)
+        grid.addWidget(QLabel("ID темы"), 0, 2)
         grid.addWidget(self.f_theme, 0, 3)
-        grid.addWidget(QLabel("Difficulty"), 1, 0)
-        grid.addWidget(self.f_diff, 1, 1)
-        grid.addWidget(QLabel("Privacy"), 1, 2)
-        grid.addWidget(self.f_private, 1, 3)
-        grid.addWidget(QLabel("Status"), 2, 0)
-        grid.addWidget(self.f_deactivated, 2, 1)
-        grid.addWidget(QLabel("Page"), 2, 2)
-        grid.addWidget(self.f_page, 2, 3)
-        grid.addWidget(QLabel("Per page"), 3, 0)
-        grid.addWidget(self.f_per_page, 3, 1)
-        grid.addWidget(QLabel("New name"), 4, 0)
-        grid.addWidget(self.f_new_name, 4, 1, 1, 2)
-        grid.addWidget(QLabel("New source"), 4, 3)
-        grid.addWidget(self.f_new_source, 4, 4)
 
-        self.search_btn = QPushButton("Search")
+        grid.addWidget(QLabel("Сложность"), 1, 0)
+        grid.addWidget(self.f_diff, 1, 1)
+        grid.addWidget(QLabel("Приватность"), 1, 2)
+        grid.addWidget(self.f_private, 1, 3)
+
+        grid.addWidget(QLabel("Статус"), 2, 0)
+        grid.addWidget(self.f_deactivated, 2, 1)
+        grid.addWidget(QLabel("Страница"), 2, 2)
+        grid.addWidget(self.f_page, 2, 3)
+
+        grid.addWidget(QLabel("На страницу"), 3, 0)
+        grid.addWidget(self.f_per_page, 3, 1)
+        self.search_btn = QPushButton("Показать")
         self.search_btn.clicked.connect(self._search)
         grid.addWidget(self.search_btn, 3, 3)
-        self.create_btn = QPushButton("Create Draft")
+
+        grid.addWidget(QLabel("Новая задача"), 4, 0)
+        grid.addWidget(self.f_new_name, 4, 1, 1, 2)
+        grid.addWidget(self.f_new_source, 4, 3)
+        self.create_btn = QPushButton("Создать черновик")
         self.create_btn.clicked.connect(self._create_draft)
-        grid.addWidget(self.create_btn, 3, 4)
+        grid.addWidget(self.create_btn, 4, 4)
 
         col.addWidget(filters)
 
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Id", "Name", "Theme", "Difficulty", "Private", "Off", "Updated"]
+            ["ID", "Название", "Тема", "Сложность", "Приватная", "Деактив.", "Обновлена"]
         )
         self.table.cellDoubleClicked.connect(self._open_from_table)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.horizontalHeader().setStretchLastSection(True)
         col.addWidget(self.table, 1)
-
         return wrapper
 
-    def _build_editor_panel(self) -> QWidget:
+    def _build_right_panel(self) -> QWidget:
         wrapper = QWidget()
         col = QVBoxLayout(wrapper)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(8)
 
         header = QHBoxLayout()
-        self.current_label = QLabel("Question: not loaded")
+        self.current_label = QLabel("Задача: не загружена")
         header.addWidget(self.current_label)
         header.addStretch()
 
-        self.reload_btn = QPushButton("Reload")
+        self.reload_btn = QPushButton("Обновить")
         self.reload_btn.clicked.connect(self._reload_current)
         header.addWidget(self.reload_btn)
 
-        self.save_btn = QPushButton("Save to Platform")
+        self.save_btn = QPushButton("Сохранить на платформу")
         self.save_btn.clicked.connect(self._save_current)
         header.addWidget(self.save_btn)
         col.addLayout(header)
 
-        form_box = QGroupBox("Question Card")
-        form = QFormLayout(form_box)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_tab_main(), "Основное")
+        self.tabs.addTab(self._build_tab_answer(), "Ответ")
+        self.tabs.addTab(self._build_tab_hints(), "Подсказки")
+        self.tabs.addTab(self._build_tab_related(), "Связи")
+        self.tabs.addTab(self._build_tab_json(), "JSON")
+        col.addWidget(self.tabs, 1)
+        return wrapper
 
+    def _build_tab_main(self) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
         self.e_name = QLineEdit()
         self.e_parent_theme = QLineEdit()
         self.e_difficulty = QLineEdit()
@@ -213,30 +238,96 @@ class FullClientApp(QMainWindow):
         self.e_lesson_time = QLineEdit()
         self.e_themes = QLineEdit()
         self.e_tags = QLineEdit()
-        self.e_related = QLineEdit()
-        self.e_answer = QPlainTextEdit()
-        self.e_answer.setMinimumHeight(90)
-        self.e_faq_json = QPlainTextEdit()
-        self.e_faq_json.setMinimumHeight(220)
+        self.e_private = QCheckBox("Приватная задача")
+        self.e_deactivated = QCheckBox("Деактивирована")
 
-        self.e_private = QCheckBox("Is private")
-        self.e_deactivated = QCheckBox("Is deactivated")
-
-        form.addRow("Name", self.e_name)
+        form.addRow("Название", self.e_name)
         form.addRow("ParentThemeId", self.e_parent_theme)
         form.addRow("DifficultyId", self.e_difficulty)
         form.addRow("SourceId", self.e_source)
         form.addRow("SortOrder", self.e_sort_order)
         form.addRow("LessonTimeCode", self.e_lesson_time)
-        form.addRow("Themes (id,id,...)", self.e_themes)
-        form.addRow("Tags (id,id,...)", self.e_tags)
-        form.addRow("Related questions (id,id,...)", self.e_related)
+        form.addRow("Themes (через запятую)", self.e_themes)
+        form.addRow("Tags (через запятую)", self.e_tags)
         form.addRow(self.e_private)
         form.addRow(self.e_deactivated)
-        form.addRow("Answer text", self.e_answer)
-        form.addRow("Faq JSON (list of string lists)", self.e_faq_json)
-        col.addWidget(form_box, 1)
-        return wrapper
+        return page
+
+    def _build_tab_answer(self) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+
+        self.e_answer_type = QComboBox()
+        for title, atype, input_type in ANSWER_TYPE_ITEMS:
+            self.e_answer_type.addItem(title, (atype, input_type))
+        self.e_answer_type.currentIndexChanged.connect(self._on_answer_type_changed)
+
+        self.e_input_type = QLineEdit()
+        self.e_input_type.setReadOnly(True)
+        self.e_ap_length = QLineEdit()
+        self.e_ap_height = QLineEdit()
+        self.e_answer = QPlainTextEdit()
+        self.e_answer.setMinimumHeight(130)
+        self.e_wrong_answers = QPlainTextEdit()
+        self.e_wrong_answers.setMinimumHeight(90)
+        self.e_answer_needs_file = QCheckBox("Ответ требует приложенный файл")
+        self.e_answer_is_proof = QCheckBox("Ответ является доказательством")
+
+        self.answer_help = QLabel(
+            "Типы из HAR:\n"
+            "20 — Табличный (1 в 1)\n"
+            "21 — Табличные пары\n"
+            "24 — Табличный с лишними пустыми строками"
+        )
+        self.answer_help.setWordWrap(True)
+        self.answer_help.setStyleSheet("font-size:11px; color:#9aa;")
+
+        form.addRow("Тип ответа", self.e_answer_type)
+        form.addRow("InputType", self.e_input_type)
+        form.addRow("AnswerProperty.length", self.e_ap_length)
+        form.addRow("AnswerProperty.height", self.e_ap_height)
+        form.addRow("Ответ (text)", self.e_answer)
+        form.addRow("Неверные ответы (по строке)", self.e_wrong_answers)
+        form.addRow(self.e_answer_needs_file)
+        form.addRow(self.e_answer_is_proof)
+        form.addRow(self.answer_help)
+        self._on_answer_type_changed()
+        return page
+
+    def _build_tab_hints(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        self.e_faq_json = QPlainTextEdit()
+        self.e_faq_json.setPlaceholderText('[["Подсказка 1", "Шаг 1"], ["Подсказка 2", "Шаг 1", "Шаг 2"]]')
+        lay.addWidget(QLabel("Faq JSON (массив массивов строк):"))
+        lay.addWidget(self.e_faq_json, 1)
+        return page
+
+    def _build_tab_related(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        self.e_related = QLineEdit()
+        self.e_related.setPlaceholderText("ID связанных задач через запятую")
+        lay.addWidget(QLabel("RelatedQuestionIds:"))
+        lay.addWidget(self.e_related)
+        lay.addStretch()
+        return page
+
+    def _build_tab_json(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        row = QHBoxLayout()
+        self.btn_refresh_json = QPushButton("Обновить из формы")
+        self.btn_refresh_json.clicked.connect(self._refresh_raw_json_from_form)
+        self.btn_apply_json = QPushButton("Применить JSON в форму")
+        self.btn_apply_json.clicked.connect(self._apply_raw_json_to_form)
+        row.addWidget(self.btn_refresh_json)
+        row.addWidget(self.btn_apply_json)
+        row.addStretch()
+        lay.addLayout(row)
+        self.raw_json = QPlainTextEdit()
+        lay.addWidget(self.raw_json, 1)
+        return page
 
     def _search(self):
         try:
@@ -247,7 +338,7 @@ class FullClientApp(QMainWindow):
             page = int(self.f_page.text().strip() or "1")
             per_page = int(self.f_per_page.text().strip() or "50")
         except Exception as exc:
-            self._error(f"Invalid filter values: {exc}")
+            self._error(f"Некорректные фильтры: {exc}")
             return
 
         privacy = self.f_private.currentIndex()
@@ -255,7 +346,7 @@ class FullClientApp(QMainWindow):
         deactivated = self.f_deactivated.currentIndex()
         is_deactivated = None if deactivated == 0 else deactivated == 2
 
-        self._set_status("Loading questions...")
+        self._set_status("Загрузка списка задач...")
 
         def _do():
             return list_questions(
@@ -273,7 +364,7 @@ class FullClientApp(QMainWindow):
             items, _payload = data
             self._last_items = items
             self._fill_table(items)
-            self._set_status(f"Loaded {len(items)} questions")
+            self._set_status(f"Загружено задач: {len(items)}")
 
         _run(_do, on_result=_done, on_error=lambda e: self._error(_friendly_request_error(Exception(e))))
 
@@ -285,8 +376,8 @@ class FullClientApp(QMainWindow):
                 str(q.get("Name", "")),
                 str(q.get("ParentThemeId", "")),
                 str(q.get("DifficultyId", "")),
-                "yes" if q.get("IsPrivate") else "no",
-                "yes" if q.get("IsDeactivated") else "no",
+                "Да" if q.get("IsPrivate") else "Нет",
+                "Да" if q.get("IsDeactivated") else "Нет",
                 str(q.get("UpdatedAt", ""))[:19],
             ]
             for col, value in enumerate(values):
@@ -297,18 +388,18 @@ class FullClientApp(QMainWindow):
             return
         qid = self._last_items[row].get("Id")
         if not isinstance(qid, int):
-            self._error("Selected row has no numeric question id")
+            self._error("В выбранной строке нет корректного ID")
             return
         self._load_question(qid)
 
     def _load_question(self, question_id: int):
         token = self._token()
-        self._set_status(f"Loading question #{question_id}...")
+        self._set_status(f"Загрузка задачи #{question_id}...")
 
         def _done(question):
             self._current_question = question
             self._show_question(question)
-            self._set_status(f"Question #{question_id} loaded")
+            self._set_status(f"Задача #{question_id} загружена")
 
         _run(
             lambda: get_question_by_id(question_id, token),
@@ -322,23 +413,23 @@ class FullClientApp(QMainWindow):
             name = self.f_new_name.text().strip() or "Новая задача"
             theme_id = _to_optional_int(self.f_theme.text())
             if theme_id is None:
-                raise ValueError("Theme ID is required for create")
+                raise ValueError("Для создания нужен ID темы")
             difficulty_id = _to_optional_int(self.f_diff.text())
             if difficulty_id is None:
                 difficulty_id = 20
             source_id = _to_optional_int(self.f_new_source.text())
         except Exception as exc:
-            self._error(f"Create draft validation error: {exc}")
+            self._error(f"Ошибка в параметрах создания: {exc}")
             return
 
-        self._set_status("Creating draft question...")
+        self._set_status("Создание черновика...")
 
         def _done(result: dict):
             qid = result.get("Id")
             if not isinstance(qid, int):
-                self._error("Created question has invalid Id")
+                self._error("Сервер вернул некорректный Id новой задачи")
                 return
-            self._set_status(f"Draft created: #{qid}")
+            self._set_status(f"Черновик создан: #{qid}")
             self._load_question(qid)
             self._search()
 
@@ -359,16 +450,16 @@ class FullClientApp(QMainWindow):
 
     def _reload_current(self):
         if not self._current_question:
-            self._error("No question loaded")
+            self._error("Задача не загружена")
             return
         qid = self._current_question.get("Id")
         if not isinstance(qid, int):
-            self._error("Current question has invalid Id")
+            self._error("Некорректный ID текущей задачи")
             return
         self._load_question(qid)
 
     def _show_question(self, q: dict):
-        self.current_label.setText(f"Question #{q.get('Id', '?')}")
+        self.current_label.setText(f"Задача: #{q.get('Id', '?')} — {q.get('Name', '')}")
         self.e_name.setText(str(q.get("Name", "")))
         self.e_parent_theme.setText(str(q.get("ParentThemeId", "")))
         self.e_difficulty.setText(str(q.get("DifficultyId", "")))
@@ -377,15 +468,6 @@ class FullClientApp(QMainWindow):
         self.e_lesson_time.setText(str(q.get("LessonTimeCode", 0)))
         self.e_themes.setText(",".join(str(x) for x in (q.get("Themes") or [])))
         self.e_tags.setText(",".join(str(x) for x in (q.get("Tags") or [])))
-
-        related = q.get("RelatedQuestions") or []
-        related_ids: list[str] = []
-        if isinstance(related, list):
-            for rel in related:
-                if isinstance(rel, dict) and isinstance(rel.get("Id"), int):
-                    related_ids.append(str(rel["Id"]))
-        self.e_related.setText(",".join(related_ids))
-
         self.e_private.setChecked(bool(q.get("IsPrivate")))
         self.e_deactivated.setChecked(bool(q.get("IsDeactivated")))
 
@@ -393,65 +475,147 @@ class FullClientApp(QMainWindow):
         answer_text = answer.get("text", "") if isinstance(answer, dict) else ""
         self.e_answer.setPlainText(answer_text)
 
+        answer_type = int(q.get("AnswerTypeId", 1) or 1)
+        input_type = int(q.get("InputType", 1) or 1)
+        for i in range(self.e_answer_type.count()):
+            at, it = self.e_answer_type.itemData(i)
+            if at == answer_type:
+                self.e_answer_type.setCurrentIndex(i)
+                if it != input_type:
+                    self.e_input_type.setText(str(input_type))
+                break
+        else:
+            self.e_answer_type.addItem(f"{answer_type} — Пользовательский тип", (answer_type, input_type))
+            self.e_answer_type.setCurrentIndex(self.e_answer_type.count() - 1)
+
+        ap = q.get("AnswerProperty")
+        if isinstance(ap, dict):
+            self.e_ap_length.setText(str(ap.get("length", "")))
+            self.e_ap_height.setText(str(ap.get("height", "")))
+        else:
+            self.e_ap_length.setText("")
+            self.e_ap_height.setText("")
+
+        wrong = q.get("WrongAnswer")
+        wrong_text = wrong.get("String", "") if isinstance(wrong, dict) else ""
+        self.e_wrong_answers.setPlainText(wrong_text)
+        self.e_answer_needs_file.setChecked(bool(q.get("AnswerNeedsAttachment")))
+        self.e_answer_is_proof.setChecked(bool(q.get("AnswerIsProof")))
+
         faq = q.get("Faq") or []
         self.e_faq_json.setPlainText(json.dumps(faq, ensure_ascii=False, indent=2))
 
+        related = q.get("RelatedQuestions") or []
+        related_ids: list[str] = []
+        if isinstance(related, list):
+            for item in related:
+                if isinstance(item, dict) and isinstance(item.get("Id"), int):
+                    related_ids.append(str(item["Id"]))
+        self.e_related.setText(",".join(related_ids))
+
+        self.raw_json.setPlainText(json.dumps(q, ensure_ascii=False, indent=2))
+
+    def _on_answer_type_changed(self):
+        atype, input_type = self.e_answer_type.currentData()
+        self.e_input_type.setText(str(input_type))
+        is_table = int(input_type) == 3
+        self.e_ap_length.setEnabled(is_table)
+        self.e_ap_height.setEnabled(is_table)
+
+    def _refresh_raw_json_from_form(self):
+        try:
+            payload = self._build_payload_from_form()
+            self.raw_json.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+            self._set_status("JSON обновлён из формы")
+        except Exception as exc:
+            self._error(f"Не удалось собрать JSON: {exc}")
+
+    def _apply_raw_json_to_form(self):
+        try:
+            obj = json.loads(self.raw_json.toPlainText())
+            if not isinstance(obj, dict):
+                raise ValueError("Ожидался JSON-объект задачи")
+            self._current_question = obj
+            self._show_question(obj)
+            self._set_status("JSON применён к форме")
+        except Exception as exc:
+            self._error(f"Не удалось применить JSON: {exc}")
+
     def _save_current(self):
         if not self._current_question:
-            self._error("No question loaded")
+            self._error("Задача не загружена")
             return
-
         try:
-            faq_raw = self.e_faq_json.toPlainText().strip() or "[]"
-            faq = json.loads(faq_raw)
-            if not isinstance(faq, list):
-                raise ValueError("Faq must be a JSON list")
-            normalized_faq: list[list[str]] = []
-            for hint in faq:
-                if isinstance(hint, str):
-                    normalized_faq.append([hint])
-                elif isinstance(hint, list):
-                    normalized_faq.append([str(part) for part in hint if str(part).strip()])
-                else:
-                    raise ValueError("Each hint must be string or list of strings")
-
-            patch = patch_question_from_form(
-                self._current_question,
-                name=self.e_name.text().strip(),
-                parent_theme_id=_to_optional_int(self.e_parent_theme.text()),
-                difficulty_id=_to_optional_int(self.e_difficulty.text()),
-                source_id=_to_optional_int(self.e_source.text()),
-                sort_order=int(self.e_sort_order.text().strip() or "0"),
-                lesson_time_code=int(self.e_lesson_time.text().strip() or "0"),
-                answer_text=self.e_answer.toPlainText(),
-                is_private=self.e_private.isChecked(),
-                is_deactivated=self.e_deactivated.isChecked(),
-                themes=_parse_id_list(self.e_themes.text()),
-                tags=_parse_id_list(self.e_tags.text()),
-                faq=normalized_faq,
-            )
-            related_ids = _parse_id_list(self.e_related.text())
             token = self._token()
+            payload = self._build_payload_from_form()
+            related_ids = _parse_id_list(self.e_related.text())
         except Exception as exc:
-            self._error(f"Validation error: {exc}")
+            self._error(f"Ошибка валидации перед сохранением: {exc}")
             return
 
-        self._set_status("Saving question...")
+        self._set_status("Сохраняю задачу...")
 
         def _do():
-            update_question(patch, token)
-            update_related_questions(int(patch["Id"]), related_ids, token)
-            return int(patch["Id"])
+            update_related_questions(int(payload["Id"]), related_ids, token)
+            update_question(payload, token)
+            return int(payload["Id"])
 
         def _done(qid: int):
-            self._set_status(f"Question #{qid} saved")
+            self._set_status(f"Задача #{qid} сохранена")
             self._load_question(qid)
 
         _run(_do, on_result=_done, on_error=lambda e: self._error(_friendly_request_error(Exception(e))))
 
+    def _build_payload_from_form(self) -> dict:
+        faq_raw = self.e_faq_json.toPlainText().strip() or "[]"
+        faq_json = json.loads(faq_raw)
+        if not isinstance(faq_json, list):
+            raise ValueError("Faq должен быть JSON-массивом")
+        faq: list[list[str]] = []
+        for item in faq_json:
+            if isinstance(item, str):
+                faq.append([item])
+            elif isinstance(item, list):
+                faq.append([str(x) for x in item if str(x).strip()])
+            else:
+                raise ValueError("Каждая подсказка должна быть строкой или массивом строк")
+
+        atype, input_type = self.e_answer_type.currentData()
+        answer_property: dict = {}
+        if int(input_type) == 3:
+            length = int((self.e_ap_length.text().strip() or "0"))
+            height = int((self.e_ap_height.text().strip() or "0"))
+            answer_property = {"length": length, "height": height}
+
+        wrong = self.e_wrong_answers.toPlainText().strip()
+        question = patch_question_from_form(
+            self._current_question,
+            name=self.e_name.text().strip(),
+            parent_theme_id=_to_optional_int(self.e_parent_theme.text()),
+            difficulty_id=_to_optional_int(self.e_difficulty.text()),
+            source_id=_to_optional_int(self.e_source.text()),
+            sort_order=int(self.e_sort_order.text().strip() or "0"),
+            lesson_time_code=int(self.e_lesson_time.text().strip() or "0"),
+            answer_text=self.e_answer.toPlainText(),
+            is_private=self.e_private.isChecked(),
+            is_deactivated=self.e_deactivated.isChecked(),
+            themes=_parse_id_list(self.e_themes.text()),
+            tags=_parse_id_list(self.e_tags.text()),
+            faq=faq,
+        )
+        question["AnswerTypeId"] = int(atype)
+        question["InputType"] = int(input_type)
+        question["AnswerProperty"] = answer_property
+        question["AnswerNeedsAttachment"] = self.e_answer_needs_file.isChecked()
+        question["AnswerIsProof"] = self.e_answer_is_proof.isChecked()
+        question["WrongAnswer"] = {"String": wrong, "Valid": bool(wrong)}
+        if "FaqText" not in question:
+            question["FaqText"] = ""
+        return question
+
     def _load_reference_data(self):
         token = self._token()
-        self._set_status("Loading dictionaries...")
+        self._set_status("Загрузка справочников...")
 
         def _do():
             themes = list_themes(token)
@@ -461,14 +625,21 @@ class FullClientApp(QMainWindow):
 
         def _done(stats: tuple[int, int, int]):
             t, g, d = stats
-            self._set_status(f"Dictionaries loaded: themes={t}, tags={g}, difficulties={d}")
+            self._set_status(f"Справочники загружены: темы={t}, теги={g}, сложности={d}")
 
         _run(_do, on_result=_done, on_error=lambda e: self._error(_friendly_request_error(Exception(e))))
+
+    def _open_hints_window(self):
+        if self._hints_window is None:
+            self._hints_window = HintsApp()
+        self._hints_window.show()
+        self._hints_window.raise_()
+        self._hints_window.activateWindow()
 
     def _token(self) -> str:
         token = self.token_edit.text().strip()
         if not token:
-            raise ValueError("JWT token is required")
+            raise ValueError("Нужен JWT токен")
         return token
 
     def _set_status(self, text: str):
@@ -476,16 +647,16 @@ class FullClientApp(QMainWindow):
 
     def _error(self, text: str):
         self._set_status(text)
-        QMessageBox.critical(self, "Error", text)
+        QMessageBox.critical(self, "Ошибка", text)
 
     def _save_settings(self):
         data = {"token": self.token_edit.text().strip()}
         try:
-            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            self._set_status("Settings saved")
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as file:
+                json.dump(data, file, ensure_ascii=False, indent=2)
+            self._set_status("Настройки сохранены")
         except Exception as exc:
-            self._error(f"Failed to save settings: {exc}")
+            self._error(f"Не удалось сохранить настройки: {exc}")
 
     def _load_settings(self):
         token = os.getenv("SHKOLKOVO_TOKEN", "")
@@ -495,9 +666,10 @@ class FullClientApp(QMainWindow):
         if not os.path.exists(SETTINGS_FILE):
             return
         try:
-            with open(SETTINGS_FILE, encoding="utf-8") as f:
-                data = json.load(f)
+            with open(SETTINGS_FILE, encoding="utf-8") as file:
+                data = json.load(file)
             if data.get("token"):
                 self.token_edit.setText(data["token"])
         except Exception:
             pass
+
